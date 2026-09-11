@@ -96,14 +96,68 @@ hr{border:0;border-top:1px solid #ddd;margin:18px 0}
     <label>Schriftgröße</label>
     <input id="fontSizeInput" type="number" min="8" max="48">
 
+    <label>Schriftart</label>
+    <select id="fontFamilyInput">
+      <option value="Arial, sans-serif">Arial</option>
+      <option value="Verdana, sans-serif">Verdana</option>
+      <option value="Georgia, serif">Georgia</option>
+      <option value="'Trebuchet MS', sans-serif">Trebuchet MS</option>
+      <option value="'Courier New', monospace">Courier New</option>
+    </select>
+
+    <div class="row">
+      <div>
+        <label>Schriftschnitt</label>
+        <select id="fontWeightInput">
+          <option value="normal">Normal</option>
+          <option value="bold">Fett</option>
+        </select>
+      </div>
+      <div>
+        <label>Schriftstil</label>
+        <select id="fontStyleInput">
+          <option value="normal">Normal</option>
+          <option value="italic">Kursiv</option>
+        </select>
+      </div>
+    </div>
+
+    <label>Textausrichtung</label>
+    <select id="textAlignInput">
+      <option value="center">Zentriert</option>
+      <option value="left">Links</option>
+      <option value="right">Rechts</option>
+    </select>
+
     <label>Boxfarbe</label>
     <input id="colorInput" type="color">
+
+    <label>Füllung</label>
+    <select id="fillStyleInput">
+      <option value="solid">Farbfüllung</option>
+      <option value="none">Keine Füllung</option>
+    </select>
 
     <label>Textfarbe</label>
     <input id="textColorInput" type="color">
 
     <label>Rahmenfarbe</label>
     <input id="borderColorInput" type="color">
+
+    <label>Randstil</label>
+    <select id="borderStyleInput">
+      <option value="solid">Durchgehend</option>
+      <option value="dashed">Gestrichelt</option>
+      <option value="dotted">Gepunktet</option>
+      <option value="double">Doppelt</option>
+    </select>
+
+    <label>Box-Schatten</label>
+    <select id="boxShadowInput">
+      <option value="subtle">Dezent</option>
+      <option value="none">Keiner</option>
+      <option value="strong">Stark</option>
+    </select>
 
     <div class="row">
       <div>
@@ -136,6 +190,9 @@ hr{border:0;border-top:1px solid #ddd;margin:18px 0}
     <button class="primary" style="width:100%;margin-top:12px" onclick="applyChanges()">
       Änderungen übernehmen
     </button>
+
+    <label>Diagramm-Hintergrund</label>
+    <input id="canvasBackgroundInput" type="color" value="#f4f5f7">
     </fieldset>
 
     <hr>
@@ -198,6 +255,7 @@ let nodes = [
 ];
 
 let connections = [];
+let diagramBackground = "#f4f5f7";
 let selected = null;
 let selectedConnection = null;
 let connectionMode = false;
@@ -219,15 +277,23 @@ const arrowEditorFields = document.getElementById("arrowEditorFields");
 const titleInput = document.getElementById("titleInput");
 const descriptionInput = document.getElementById("descriptionInput");
 const fontSizeInput = document.getElementById("fontSizeInput");
+const fontFamilyInput = document.getElementById("fontFamilyInput");
+const fontWeightInput = document.getElementById("fontWeightInput");
+const fontStyleInput = document.getElementById("fontStyleInput");
+const textAlignInput = document.getElementById("textAlignInput");
 const colorInput = document.getElementById("colorInput");
+const fillStyleInput = document.getElementById("fillStyleInput");
 const textColorInput = document.getElementById("textColorInput");
 const borderColorInput = document.getElementById("borderColorInput");
+const borderStyleInput = document.getElementById("borderStyleInput");
+const boxShadowInput = document.getElementById("boxShadowInput");
 const borderWidthInput = document.getElementById("borderWidthInput");
 const borderRadiusInput = document.getElementById("borderRadiusInput");
 const widthInput = document.getElementById("widthInput");
 const heightInput = document.getElementById("heightInput");
 const xInput = document.getElementById("xInput");
 const yInput = document.getElementById("yInput");
+const canvasBackgroundInput = document.getElementById("canvasBackgroundInput");
 
 const arrowColorInput = document.getElementById("arrowColorInput");
 const arrowWidthInput = document.getElementById("arrowWidthInput");
@@ -247,6 +313,13 @@ function defaults(n){
   n.borderWidth ??= 2;
   n.borderRadius ??= 8;
   n.fontSize ??= 16;
+  n.fontFamily ||= "Arial, sans-serif";
+  n.fontWeight ||= "bold";
+  n.fontStyle ||= "normal";
+  n.textAlign ||= "center";
+  n.fillStyle ||= "solid";
+  n.borderStyle ||= "solid";
+  n.boxShadow ||= "subtle";
   n.width ||= 260;
   n.height ||= 140;
   n.x ??= 100;
@@ -286,7 +359,7 @@ function updateEditorState(){
 }
 
 function persistDiagram(){
-  const data = JSON.stringify({ nodes, connections });
+  const data = JSON.stringify({ nodes, connections, background: diagramBackground });
   document.cookie = `${diagramCookieName}=${encodeURIComponent(data)};max-age=${7 * 24 * 60 * 60};path=/;SameSite=Lax`;
   localStorage.setItem(`${diagramCookieName}-fallback`, JSON.stringify({
     data,
@@ -318,6 +391,7 @@ function restoreDiagram(){
     const data = JSON.parse(savedData);
     nodes = (data.nodes || []).map(defaults);
     connections = (data.connections || []).map(connectionDefaults);
+    diagramBackground = data.background || "#f4f5f7";
     return true;
   }catch{
     return false;
@@ -351,15 +425,23 @@ function selectNode(id){
   titleInput.value = selected.title;
   descriptionInput.value = selected.description;
   fontSizeInput.value = selected.fontSize;
+  fontFamilyInput.value = selected.fontFamily;
+  fontWeightInput.value = selected.fontWeight;
+  fontStyleInput.value = selected.fontStyle;
+  textAlignInput.value = selected.textAlign;
   colorInput.value = selected.color;
+  fillStyleInput.value = selected.fillStyle;
   textColorInput.value = selected.textColor;
   borderColorInput.value = selected.borderColor;
+  borderStyleInput.value = selected.borderStyle;
+  boxShadowInput.value = selected.boxShadow;
   borderWidthInput.value = selected.borderWidth;
   borderRadiusInput.value = selected.borderRadius;
   widthInput.value = selected.width;
   heightInput.value = selected.height;
   xInput.value = Math.round(selected.x);
   yInput.value = Math.round(selected.y);
+  canvasBackgroundInput.value = diagramBackground;
 
   updateEditorState();
   renderSelection();
@@ -381,6 +463,7 @@ function selectConnection(connection){
 }
 
 function render(){
+  canvasWrap.style.backgroundColor = diagramBackground;
   document.querySelectorAll(".node").forEach(element => element.remove());
 
   nodes.forEach(node => {
@@ -394,10 +477,20 @@ function render(){
     element.style.top = node.y + "px";
     element.style.width = node.width + "px";
     element.style.height = node.height + "px";
-    element.style.background = node.color;
+    element.style.background = node.fillStyle === "none" ? "transparent" : node.color;
     element.style.color = node.textColor;
     element.style.border = `${node.borderWidth}px solid ${node.borderColor}`;
+    element.style.borderStyle = node.borderStyle;
     element.style.borderRadius = node.borderRadius + "px";
+    element.style.fontFamily = node.fontFamily;
+    element.style.fontWeight = node.fontWeight;
+    element.style.fontStyle = node.fontStyle;
+    element.style.textAlign = node.textAlign;
+    element.style.boxShadow = node.boxShadow === "none"
+      ? "none"
+      : node.boxShadow === "strong"
+        ? "0 4px 12px #0005"
+        : "0 2px 6px #0002";
 
     element.innerHTML = `
       <span class="nodeTitle" style="font-size:${node.fontSize}px">${escapeHtml(node.title)}</span>
@@ -616,15 +709,23 @@ function applyChanges(){
   selected.title = titleInput.value || "Unbenannter Punkt";
   selected.description = descriptionInput.value;
   selected.fontSize = Math.min(48, Math.max(8, parseInt(fontSizeInput.value) || 16));
+  selected.fontFamily = fontFamilyInput.value;
+  selected.fontWeight = fontWeightInput.value;
+  selected.fontStyle = fontStyleInput.value;
+  selected.textAlign = textAlignInput.value;
   selected.color = colorInput.value;
+  selected.fillStyle = fillStyleInput.value;
   selected.textColor = textColorInput.value;
   selected.borderColor = borderColorInput.value;
+  selected.borderStyle = borderStyleInput.value;
+  selected.boxShadow = boxShadowInput.value;
   selected.borderWidth = Math.max(0, parseInt(borderWidthInput.value) || 0);
   selected.borderRadius = Math.max(0, parseInt(borderRadiusInput.value) || 0);
   selected.width = Math.max(80, parseInt(widthInput.value) || 260);
   selected.height = Math.max(50, parseInt(heightInput.value) || 140);
   selected.x = Math.max(0, parseInt(xInput.value) || 0);
   selected.y = Math.max(0, parseInt(yInput.value) || 0);
+  diagramBackground = canvasBackgroundInput.value;
   persistDiagram();
 
   const id = selected.id;
@@ -768,7 +869,8 @@ async function exportImage(){
 function saveDiagram(){
   const data = JSON.stringify({
     nodes,
-    connections
+    connections,
+    background: diagramBackground
   }, null, 2);
 
   localStorage.setItem("flussdiagramm", data);
@@ -790,6 +892,7 @@ function clearDiagram(){
 
   nodes = [];
   connections = [];
+  diagramBackground = "#f4f5f7";
   selected = null;
   selectedConnection = null;
   connectionStart = null;
@@ -797,6 +900,7 @@ function clearDiagram(){
   localStorage.removeItem(`${diagramCookieName}-fallback`);
   descriptionPanel.classList.remove("visible");
   emptyPanel.style.display = "block";
+  updateEditorState();
   render();
 }
 
@@ -817,6 +921,7 @@ function loadDiagram(){
 
         nodes = (data.nodes || []).map(defaults);
         connections = (data.connections || []).map(connectionDefaults);
+        diagramBackground = data.background || "#f4f5f7";
 
         selected = null;
         selectedConnection = null;
