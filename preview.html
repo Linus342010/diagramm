@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flussdiagramm-Editor</title>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#f4f5f7;color:#222;overflow:hidden}
+header{height:58px;background:#263548;color:white;display:flex;align-items:center;padding:0 18px;gap:10px}
+header h1{font-size:18px;margin:0;flex:1}
+button{border:0;border-radius:7px;padding:9px 13px;cursor:pointer;font-size:14px}
+.primary{background:#4b75c5;color:white}
+.secondary{background:#e9edf3;color:#263548}
+.danger{background:#d63636;color:white}
+main{height:calc(100vh - 58px);display:flex}
+#toolbar{width:290px;background:white;border-right:1px solid #ddd;padding:15px;overflow:auto}
+#toolbar h2{font-size:15px;margin:5px 0 12px}
+#toolbar p{font-size:13px;color:#666;line-height:1.4}
+#canvasWrap{position:relative;flex:1;overflow:auto;background:#f4f5f7;background-image:radial-gradient(#cfd4dc 1px,transparent 1px);background-size:20px 20px}
+#canvas{position:relative;width:1800px;height:1200px}
+#connections{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.connection{fill:none}
+.node{
+  position:absolute;
+  min-width:80px;
+  min-height:50px;
+  padding:14px 16px;
+  cursor:move;
+  box-shadow:0 2px 6px #0002;
+  user-select:none;
+  text-align:center;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  font-weight:bold;
+  gap:7px;
+  overflow:hidden
+}
+.node.selected{outline:3px solid #222;outline-offset:2px}
+.node.connection-start{outline:3px dashed #f2a900;outline-offset:2px}
+.nodeTitle{font-size:16px;line-height:1.15}
+.nodeDescription{font-size:12px;font-weight:normal;line-height:1.3;white-space:pre-wrap;max-width:100%}
+#empty{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:#777}
+label{display:block;font-size:13px;font-weight:bold;margin:12px 0 5px}
+input,textarea,select{width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;font:inherit}
+input[type="color"]{height:38px;padding:3px}
+textarea{min-height:90px;resize:vertical}
+.row{display:flex;gap:7px}
+.row>*{flex:1}
+#descriptionPanel{display:none}
+#descriptionPanel.visible{display:block}
+#connectionMode.active{background:#f2a900;color:white}
+hr{border:0;border-top:1px solid #ddd;margin:18px 0}
+</style>
+</head>
+
+<body>
+<header>
+  <h1>Flussdiagramm-Editor</h1>
+  <button class="primary" onclick="addNode()">+ Punkt</button>
+  <button class="secondary" id="connectionMode" onclick="toggleConnectionMode()">
+    Pfeil verbinden
+  </button>
+  <button class="secondary" onclick="exportImage()">Bild exportieren</button>
+  <button class="secondary" onclick="saveDiagram()">Speichern</button>
+  <button class="secondary" onclick="loadDiagram()">Laden</button>
+  <button class="danger" onclick="deleteSelected()">Löschen</button>
+</header>
+
+<main>
+<aside id="toolbar">
+  <div id="empty">
+    <strong>Kein Punkt ausgewählt</strong>
+    <p>Klicke auf einen Punkt, um ihn zu bearbeiten.</p>
+  </div>
+
+  <div id="descriptionPanel">
+    <h2>Punkt bearbeiten</h2>
+
+    <label>Titel</label>
+    <input id="titleInput" type="text">
+
+    <label>Beschreibung</label>
+    <textarea id="descriptionInput"></textarea>
+
+    <label>Boxfarbe</label>
+    <input id="colorInput" type="color">
+
+    <label>Textfarbe</label>
+    <input id="textColorInput" type="color">
+
+    <label>Rahmenfarbe</label>
+    <input id="borderColorInput" type="color">
+
+    <div class="row">
+      <div>
+        <label>Rahmenbreite</label>
+        <input id="borderWidthInput" type="number" min="0" max="20">
+      </div>
+      <div>
+        <label>Eckenradius</label>
+        <input id="borderRadiusInput" type="number" min="0" max="100">
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Breite</label>
+        <input id="widthInput" type="number" min="80" max="1000">
+      </div>
+      <div>
+        <label>Höhe</label>
+        <input id="heightInput" type="number" min="50" max="800">
+      </div>
+    </div>
+
+    <label>Position</label>
+    <div class="row">
+      <input id="xInput" type="number" title="X">
+      <input id="yInput" type="number" title="Y">
+    </div>
+
+    <button class="primary" style="width:100%;margin-top:12px" onclick="applyChanges()">
+      Änderungen übernehmen
+    </button>
+
+    <hr>
+
+    <h2>Pfeil anpassen</h2>
+    <p>Klicke zuerst auf einen Pfeil. Die Änderungen gelten nur für diesen Pfeil.</p>
+
+    <label>Pfeilfarbe</label>
+    <input id="arrowColorInput" type="color">
+
+    <div class="row">
+      <div>
+        <label>Stärke</label>
+        <input id="arrowWidthInput" type="number" min="1" max="20">
+      </div>
+      <div>
+        <label>Linienstil</label>
+        <select id="arrowStyleInput">
+          <option value="solid">Durchgehend</option>
+          <option value="dashed">Gestrichelt</option>
+          <option value="dotted">Gepunktet</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="secondary" style="width:100%;margin-top:10px" onclick="applyArrowChanges()">
+      Pfeil übernehmen
+    </button>
+  </div>
+</aside>
+
+<section id="canvasWrap">
+  <div id="canvas">
+    <svg id="connections">
+      <defs id="arrowDefs"></defs>
+    </svg>
+  </div>
+</section>
+</main>
+
+<script>
+let nodes = [
+  {
+    id: "lorem",
+    title: "Lorem ipsum",
+    description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+    color: "#4774c5",
+    textColor: "#ffffff",
+    borderColor: "#263548",
+    borderWidth: 2,
+    borderRadius: 8,
+    width: 260,
+    height: 140,
+    x: 600,
+    y: 400
+  }
+];
+
+let connections = [];
+let selected = null;
+let selectedConnection = null;
+let connectionMode = false;
+let connectionStart = null;
+let drag = null;
+
+const canvas = document.getElementById("canvas");
+const svg = document.getElementById("connections");
+const arrowDefs = document.getElementById("arrowDefs");
+const connectionModeButton = document.getElementById("connectionMode");
+
+const emptyPanel = document.getElementById("empty");
+const descriptionPanel = document.getElementById("descriptionPanel");
+
+const titleInput = document.getElementById("titleInput");
+const descriptionInput = document.getElementById("descriptionInput");
+const colorInput = document.getElementById("colorInput");
+const textColorInput = document.getElementById("textColorInput");
+const borderColorInput = document.getElementById("borderColorInput");
+const borderWidthInput = document.getElementById("borderWidthInput");
+const borderRadiusInput = document.getElementById("borderRadiusInput");
+const widthInput = document.getElementById("widthInput");
+const heightInput = document.getElementById("heightInput");
+const xInput = document.getElementById("xInput");
+const yInput = document.getElementById("yInput");
+
+const arrowColorInput = document.getElementById("arrowColorInput");
+const arrowWidthInput = document.getElementById("arrowWidthInput");
+const arrowStyleInput = document.getElementById("arrowStyleInput");
+
+function uid(){
+  return "n" + Date.now() + Math.random().toString(36).slice(2,8);
+}
+
+function defaults(n){
+  n.id ||= uid();
+  n.title ||= "Unbenannter Punkt";
+  n.description ||= "";
+  n.color ||= "#4774c5";
+  n.textColor ||= "#ffffff";
+  n.borderColor ||= "#263548";
+  n.borderWidth ??= 2;
+  n.borderRadius ??= 8;
+  n.width ||= 260;
+  n.height ||= 140;
+  n.x ??= 100;
+  n.y ??= 100;
+  return n;
+}
+
+function connectionDefaults(c){
+  c.color ||= "#555555";
+  c.width ||= 2;
+  c.style ||= "solid";
+  return c;
+}
+
+function addNode(){
+  const n = defaults({
+    id: uid(),
+    title: "Neuer Punkt",
+    x: 100 + nodes.length * 30,
+    y: 100 + nodes.length * 30
+  });
+
+  nodes.push(n);
+  render();
+  selectNode(n.id);
+}
+
+function selectNode(id){
+  selected = nodes.find(n => n.id === id) || null;
+  selectedConnection = null;
+
+  if(!selected)return;
+
+  defaults(selected);
+  emptyPanel.style.display = "none";
+  descriptionPanel.classList.add("visible");
+
+  titleInput.value = selected.title;
+  descriptionInput.value = selected.description;
+  colorInput.value = selected.color;
+  textColorInput.value = selected.textColor;
+  borderColorInput.value = selected.borderColor;
+  borderWidthInput.value = selected.borderWidth;
+  borderRadiusInput.value = selected.borderRadius;
+  widthInput.value = selected.width;
+  heightInput.value = selected.height;
+  xInput.value = Math.round(selected.x);
+  yInput.value = Math.round(selected.y);
+
+  renderSelection();
+}
+
+function selectConnection(connection){
+  selectedConnection = connection;
+  selected = null;
+
+  emptyPanel.style.display = "none";
+  descriptionPanel.classList.add("visible");
+
+  arrowColorInput.value = connection.color;
+  arrowWidthInput.value = connection.width;
+  arrowStyleInput.value = connection.style;
+
+  renderSelection();
+}
+
+function render(){
+  document.querySelectorAll(".node").forEach(element => element.remove());
+
+  nodes.forEach(node => {
+    defaults(node);
+
+    const element = document.createElement("div");
+    element.className = "node";
+    element.dataset.id = node.id;
+
+    element.style.left = node.x + "px";
+    element.style.top = node.y + "px";
+    element.style.width = node.width + "px";
+    element.style.height = node.height + "px";
+    element.style.background = node.color;
+    element.style.color = node.textColor;
+    element.style.border = `${node.borderWidth}px solid ${node.borderColor}`;
+    element.style.borderRadius = node.borderRadius + "px";
+
+    element.innerHTML = `
+      <span class="nodeTitle">${escapeHtml(node.title)}</span>
+      ${
+        node.description
+          ? `<span class="nodeDescription">${escapeHtml(node.description)}</span>`
+          : ""
+      }
+    `;
+
+    element.addEventListener("mousedown", startDrag);
+
+    element.addEventListener("click", event => {
+      event.stopPropagation();
+
+      if(connectionMode){
+        if(!connectionStart){
+          connectionStart = node.id;
+          renderSelection();
+        }else if(connectionStart !== node.id){
+          connections.push(connectionDefaults({
+            from: connectionStart,
+            to: node.id
+          }));
+
+          connectionStart = null;
+          toggleConnectionMode(false);
+          render();
+        }
+      }else{
+        selectNode(node.id);
+      }
+    });
+
+    canvas.appendChild(element);
+  });
+
+  renderConnections();
+  renderSelection();
+}
+
+function renderSelection(){
+  document.querySelectorAll(".node").forEach(element => {
+    element.classList.toggle(
+      "selected",
+      !!selected && element.dataset.id === selected.id
+    );
+
+    element.classList.toggle(
+      "connection-start",
+      connectionMode && element.dataset.id === connectionStart
+    );
+  });
+
+  document.querySelectorAll(".connection").forEach((line, index) => {
+    line.style.opacity =
+      selectedConnection === connections[index] ? "0.65" : "1";
+  });
+}
+
+function renderConnections(){
+  svg.querySelectorAll(".connection").forEach(element => element.remove());
+  arrowDefs.innerHTML = "";
+
+  connections.forEach((connection, index) => {
+    connectionDefaults(connection);
+
+    const from = nodes.find(node => node.id === connection.from);
+    const to = nodes.find(node => node.id === connection.to);
+
+    if(!from || !to)return;
+
+    const markerId = "arrow-" + index;
+    const marker = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "marker"
+    );
+
+    marker.setAttribute("id", markerId);
+    marker.setAttribute("markerWidth", "10");
+    marker.setAttribute("markerHeight", "10");
+    marker.setAttribute("refX", "9");
+    marker.setAttribute("refY", "3");
+    marker.setAttribute("orient", "auto");
+
+    const path = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "path"
+    );
+
+    path.setAttribute("d", "M0,0 L0,6 L9,3 z");
+    path.setAttribute("fill", connection.color);
+    marker.appendChild(path);
+    arrowDefs.appendChild(marker);
+
+    const fromWidth = from.width;
+    const fromHeight = from.height;
+    const toWidth = to.width;
+    const toHeight = to.height;
+
+    const fromCenterX = from.x + fromWidth / 2;
+    const fromCenterY = from.y + fromHeight / 2;
+    const toCenterX = to.x + toWidth / 2;
+    const toCenterY = to.y + toHeight / 2;
+
+    const dx = toCenterX - fromCenterX;
+    const dy = toCenterY - fromCenterY;
+
+    let x1 = fromCenterX;
+    let y1 = fromCenterY;
+    let x2 = toCenterX;
+    let y2 = toCenterY;
+
+    if(Math.abs(dx) > Math.abs(dy)){
+      x1 += dx > 0 ? fromWidth / 2 : -fromWidth / 2;
+      x2 += dx > 0 ? -toWidth / 2 : toWidth / 2;
+    }else{
+      y1 += dy > 0 ? fromHeight / 2 : -fromHeight / 2;
+      y2 += dy > 0 ? -toHeight / 2 : toHeight / 2;
+    }
+
+    const line = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "line"
+    );
+
+    line.setAttribute("x1", x1);
+    line.setAttribute("y1", y1);
+    line.setAttribute("x2", x2);
+    line.setAttribute("y2", y2);
+    line.setAttribute("stroke", connection.color);
+    line.setAttribute("stroke-width", connection.width);
+    line.setAttribute("marker-end", `url(#${markerId})`);
+    line.setAttribute("class", "connection");
+
+    if(connection.style === "dashed"){
+      line.setAttribute("stroke-dasharray", "8 5");
+    }else if(connection.style === "dotted"){
+      line.setAttribute("stroke-dasharray", "2 5");
+    }
+
+    line.style.pointerEvents = "stroke";
+    line.style.cursor = "pointer";
+
+    line.addEventListener("click", event => {
+      event.stopPropagation();
+      selectConnection(connection);
+    });
+
+    svg.appendChild(line);
+  });
+}
+
+function startDrag(event){
+  if(connectionMode)return;
+
+  const id = event.currentTarget.dataset.id;
+  selectNode(id);
+
+  const node = nodes.find(item => item.id === id);
+  const rect = canvas.getBoundingClientRect();
+
+  drag = {
+    node,
+    offsetX: event.clientX - rect.left - node.x,
+    offsetY: event.clientY - rect.top - node.y
+  };
+
+  document.addEventListener("mousemove", moveDrag);
+  document.addEventListener("mouseup", stopDrag);
+}
+
+function moveDrag(event){
+  if(!drag)return;
+
+  const rect = canvas.getBoundingClientRect();
+
+  drag.node.x = Math.max(
+    0,
+    event.clientX - rect.left - drag.offsetX
+  );
+
+  drag.node.y = Math.max(
+    0,
+    event.clientY - rect.top - drag.offsetY
+  );
+
+  const element = document.querySelector(
+    `[data-id="${drag.node.id}"]`
+  );
+
+  if(element){
+    element.style.left = drag.node.x + "px";
+    element.style.top = drag.node.y + "px";
+  }
+
+  renderConnections();
+
+  xInput.value = Math.round(drag.node.x);
+  yInput.value = Math.round(drag.node.y);
+}
+
+function stopDrag(){
+  drag = null;
+  document.removeEventListener("mousemove", moveDrag);
+  document.removeEventListener("mouseup", stopDrag);
+}
+
+function applyChanges(){
+  if(!selected)return;
+
+  selected.title = titleInput.value || "Unbenannter Punkt";
+  selected.description = descriptionInput.value;
+  selected.color = colorInput.value;
+  selected.textColor = textColorInput.value;
+  selected.borderColor = borderColorInput.value;
+  selected.borderWidth = Math.max(0, parseInt(borderWidthInput.value) || 0);
+  selected.borderRadius = Math.max(0, parseInt(borderRadiusInput.value) || 0);
+  selected.width = Math.max(80, parseInt(widthInput.value) || 260);
+  selected.height = Math.max(50, parseInt(heightInput.value) || 140);
+  selected.x = Math.max(0, parseInt(xInput.value) || 0);
+  selected.y = Math.max(0, parseInt(yInput.value) || 0);
+
+  const id = selected.id;
+  render();
+  selectNode(id);
+}
+
+function applyArrowChanges(){
+  if(!selectedConnection){
+    alert("Bitte zuerst einen Pfeil anklicken.");
+    return;
+  }
+
+  selectedConnection.color = arrowColorInput.value;
+  selectedConnection.width = Math.max(
+    1,
+    parseInt(arrowWidthInput.value) || 2
+  );
+  selectedConnection.style = arrowStyleInput.value;
+
+  renderConnections();
+  renderSelection();
+}
+
+function deleteSelected(){
+  if(selected){
+    if(!confirm(`"${selected.title}" wirklich löschen?`))return;
+
+    connections = connections.filter(
+      connection =>
+        connection.from !== selected.id &&
+        connection.to !== selected.id
+    );
+
+    nodes = nodes.filter(node => node.id !== selected.id);
+    selected = null;
+  }else if(selectedConnection){
+    connections = connections.filter(
+      connection => connection !== selectedConnection
+    );
+    selectedConnection = null;
+  }else{
+    return;
+  }
+
+  descriptionPanel.classList.remove("visible");
+  emptyPanel.style.display = "block";
+  render();
+}
+
+function toggleConnectionMode(state){
+  connectionMode =
+    state === undefined ? !connectionMode : state;
+
+  connectionStart = null;
+  connectionModeButton.classList.toggle("active", connectionMode);
+  connectionModeButton.textContent = connectionMode
+    ? "Zweiten Punkt wählen..."
+    : "Pfeil verbinden";
+
+  renderSelection();
+}
+
+canvas.addEventListener("click", event => {
+  if(event.target === canvas && !connectionMode){
+    selected = null;
+    selectedConnection = null;
+    descriptionPanel.classList.remove("visible");
+    emptyPanel.style.display = "block";
+    renderSelection();
+  }
+});
+
+async function exportImage(){
+  const oldSelected = selected;
+  const oldConnection = selectedConnection;
+
+  selected = null;
+  selectedConnection = null;
+  renderSelection();
+
+  const image = await html2canvas(canvas, {
+    backgroundColor: "#f4f5f7",
+    scale: 2,
+    useCORS: true
+  });
+
+  const link = document.createElement("a");
+  link.download = "flussdiagramm.png";
+  link.href = image.toDataURL("image/png");
+  link.click();
+
+  selected = oldSelected;
+  selectedConnection = oldConnection;
+  renderSelection();
+}
+
+function saveDiagram(){
+  const data = JSON.stringify({
+    nodes,
+    connections
+  }, null, 2);
+
+  localStorage.setItem("flussdiagramm", data);
+
+  const blob = new Blob([data], {
+    type: "application/json"
+  });
+
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "flussdiagramm.json";
+  link.click();
+
+  URL.revokeObjectURL(link.href);
+}
+
+function loadDiagram(){
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".json,application/json";
+
+  input.onchange = () => {
+    const file = input.files[0];
+    if(!file)return;
+
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      try{
+        const data = JSON.parse(reader.result);
+
+        nodes = (data.nodes || []).map(defaults);
+        connections = (data.connections || []).map(connectionDefaults);
+
+        selected = null;
+        selectedConnection = null;
+        descriptionPanel.classList.remove("visible");
+        emptyPanel.style.display = "block";
+
+        render();
+      }catch{
+        alert("Die Datei konnte nicht geladen werden.");
+      }
+    };
+
+    reader.readAsText(file);
+  };
+
+  input.click();
+}
+
+function escapeHtml(text){
+  return String(text).replace(/[&<>"']/g, character => ({
+    "&":"&amp;",
+    "<":"&lt;",
+    ">":"&gt;",
+    '"':"&quot;",
+    "'":"&#039;"
+  }[character]));
+}
+
+colorInput.addEventListener("input", () => {
+  if(selected){
+    selected.color = colorInput.value;
+    render();
+  }
+});
+
+textColorInput.addEventListener("input", () => {
+  if(selected){
+    selected.textColor = textColorInput.value;
+    render();
+  }
+});
+
+borderColorInput.addEventListener("input", () => {
+  if(selected){
+    selected.borderColor = borderColorInput.value;
+    render();
+  }
+});
+
+render();
+</script>
+</body>
+</html>
