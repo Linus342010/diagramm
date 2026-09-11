@@ -87,6 +87,9 @@ hr{border:0;border-top:1px solid #ddd;margin:18px 0}
     <label>Beschreibung</label>
     <textarea id="descriptionInput"></textarea>
 
+    <label>Schriftgröße</label>
+    <input id="fontSizeInput" type="number" min="8" max="48">
+
     <label>Boxfarbe</label>
     <input id="colorInput" type="color">
 
@@ -177,6 +180,7 @@ let nodes = [
     borderColor: "#263548",
     borderWidth: 2,
     borderRadius: 8,
+    fontSize: 16,
     width: 260,
     height: 140,
     x: 600,
@@ -201,6 +205,7 @@ const descriptionPanel = document.getElementById("descriptionPanel");
 
 const titleInput = document.getElementById("titleInput");
 const descriptionInput = document.getElementById("descriptionInput");
+const fontSizeInput = document.getElementById("fontSizeInput");
 const colorInput = document.getElementById("colorInput");
 const textColorInput = document.getElementById("textColorInput");
 const borderColorInput = document.getElementById("borderColorInput");
@@ -228,6 +233,7 @@ function defaults(n){
   n.borderColor ||= "#263548";
   n.borderWidth ??= 2;
   n.borderRadius ??= 8;
+  n.fontSize ??= 16;
   n.width ||= 260;
   n.height ||= 140;
   n.x ??= 100;
@@ -267,6 +273,7 @@ function selectNode(id){
 
   titleInput.value = selected.title;
   descriptionInput.value = selected.description;
+  fontSizeInput.value = selected.fontSize;
   colorInput.value = selected.color;
   textColorInput.value = selected.textColor;
   borderColorInput.value = selected.borderColor;
@@ -314,10 +321,10 @@ function render(){
     element.style.borderRadius = node.borderRadius + "px";
 
     element.innerHTML = `
-      <span class="nodeTitle">${escapeHtml(node.title)}</span>
+      <span class="nodeTitle" style="font-size:${node.fontSize}px">${escapeHtml(node.title)}</span>
       ${
         node.description
-          ? `<span class="nodeDescription">${escapeHtml(node.description)}</span>`
+          ? `<span class="nodeDescription" style="font-size:${Math.max(10, Math.round(node.fontSize * 0.75))}px">${escapeHtml(node.description)}</span>`
           : ""
       }
     `;
@@ -525,6 +532,7 @@ function applyChanges(){
 
   selected.title = titleInput.value || "Unbenannter Punkt";
   selected.description = descriptionInput.value;
+  selected.fontSize = Math.min(48, Math.max(8, parseInt(fontSizeInput.value) || 16));
   selected.color = colorInput.value;
   selected.textColor = textColorInput.value;
   selected.borderColor = borderColorInput.value;
@@ -694,6 +702,13 @@ function escapeHtml(text){
     "'":"&#039;"
   }[character]));
 }
+
+fontSizeInput.addEventListener("input", () => {
+  if(selected){
+    selected.fontSize = Math.min(48, Math.max(8, parseInt(fontSizeInput.value) || 16));
+    render();
+  }
+});
 
 colorInput.addEventListener("input", () => {
   if(selected){
