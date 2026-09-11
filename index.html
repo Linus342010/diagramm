@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
+
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Flussdiagramm-Editor</title>
@@ -20,7 +21,7 @@ main{height:calc(100vh - 58px);display:flex}
 #toolbar h2{font-size:15px;margin:5px 0 12px}
 #toolbar p{font-size:13px;color:#666;line-height:1.4}
 #canvasWrap{position:relative;flex:1;overflow:auto;background:#f4f5f7;background-image:radial-gradient(#cfd4dc 1px,transparent 1px);background-size:20px 20px}
-#canvas{position:relative;width:1800px;height:1200px}
+#canvas{position:relative;min-width:1800px;min-height:1200px}
 #connections{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
 .connection{fill:none}
 .node{
@@ -53,6 +54,9 @@ textarea{min-height:90px;resize:vertical}
 .row>*{flex:1}
 #descriptionPanel{display:none}
 #descriptionPanel.visible{display:block}
+#descriptionPanel.disabled{opacity:.45;pointer-events:none}
+fieldset{border:0;padding:0;margin:0;min-width:0}
+fieldset:disabled{opacity:.55}
 #connectionMode.active{background:#f2a900;color:white}
 hr{border:0;border-top:1px solid #ddd;margin:18px 0}
 </style>
@@ -80,6 +84,7 @@ hr{border:0;border-top:1px solid #ddd;margin:18px 0}
   </div>
 
   <div id="descriptionPanel">
+    <fieldset id="nodeEditorFields" disabled>
     <h2>Punkt bearbeiten</h2>
 
     <label>Titel</label>
@@ -131,9 +136,11 @@ hr{border:0;border-top:1px solid #ddd;margin:18px 0}
     <button class="primary" style="width:100%;margin-top:12px" onclick="applyChanges()">
       Änderungen übernehmen
     </button>
+    </fieldset>
 
     <hr>
 
+    <fieldset id="arrowEditorFields" disabled>
     <h2>Pfeil anpassen</h2>
     <p>Klicke zuerst auf einen Pfeil. Die Änderungen gelten nur für diesen Pfeil.</p>
 
@@ -158,6 +165,7 @@ hr{border:0;border-top:1px solid #ddd;margin:18px 0}
     <button class="secondary" style="width:100%;margin-top:10px" onclick="applyArrowChanges()">
       Pfeil übernehmen
     </button>
+    </fieldset>
   </div>
 </aside>
 
@@ -198,12 +206,15 @@ let drag = null;
 const diagramCookieName = "flussdiagramm";
 
 const canvas = document.getElementById("canvas");
+const canvasWrap = document.getElementById("canvasWrap");
 const svg = document.getElementById("connections");
 const arrowDefs = document.getElementById("arrowDefs");
 const connectionModeButton = document.getElementById("connectionMode");
 
 const emptyPanel = document.getElementById("empty");
 const descriptionPanel = document.getElementById("descriptionPanel");
+const nodeEditorFields = document.getElementById("nodeEditorFields");
+const arrowEditorFields = document.getElementById("arrowEditorFields");
 
 const titleInput = document.getElementById("titleInput");
 const descriptionInput = document.getElementById("descriptionInput");
@@ -248,6 +259,30 @@ function connectionDefaults(c){
   c.width ||= 2;
   c.style ||= "solid";
   return c;
+}
+
+function resizeCanvas(){
+  const padding = 500;
+  const right = nodes.reduce(
+    (maximum, node) => Math.max(maximum, node.x + node.width + padding),
+    canvasWrap.clientWidth || 1800
+  );
+  const bottom = nodes.reduce(
+    (maximum, node) => Math.max(maximum, node.y + node.height + padding),
+    canvasWrap.clientHeight || 1200
+  );
+
+  canvas.style.width = Math.max(1800, right) + "px";
+  canvas.style.height = Math.max(1200, bottom) + "px";
+}
+
+function updateEditorState(){
+  const hasNode = !!selected;
+  const hasConnection = !!selectedConnection;
+
+  nodeEditorFields.disabled = !hasNode;
+  arrowEditorFields.disabled = !hasConnection;
+  descriptionPanel.classList.toggle("disabled", !hasNode && !hasConnection);
 }
 
 function persistDiagram(){
@@ -326,6 +361,7 @@ function selectNode(id){
   xInput.value = Math.round(selected.x);
   yInput.value = Math.round(selected.y);
 
+  updateEditorState();
   renderSelection();
 }
 
@@ -340,6 +376,7 @@ function selectConnection(connection){
   arrowWidthInput.value = connection.width;
   arrowStyleInput.value = connection.style;
 
+  updateEditorState();
   renderSelection();
 }
 
@@ -399,6 +436,7 @@ function render(){
     canvas.appendChild(element);
   });
 
+  resizeCanvas();
   renderConnections();
   renderSelection();
 }
@@ -558,6 +596,7 @@ function moveDrag(event){
     element.style.top = drag.node.y + "px";
   }
 
+  resizeCanvas();
   renderConnections();
 
   xInput.value = Math.round(drag.node.x);
@@ -635,6 +674,7 @@ function deleteSelected(){
   persistDiagram();
   descriptionPanel.classList.remove("visible");
   emptyPanel.style.display = "block";
+  updateEditorState();
   render();
 }
 
@@ -652,11 +692,12 @@ function toggleConnectionMode(state){
 }
 
 canvas.addEventListener("click", event => {
-  if(event.target === canvas && !connectionMode){
+  if((event.target === canvas || event.target === svg) && !connectionMode){
     selected = null;
     selectedConnection = null;
     descriptionPanel.classList.remove("visible");
     emptyPanel.style.display = "block";
+    updateEditorState();
     renderSelection();
   }
 });
@@ -665,24 +706,63 @@ async function exportImage(){
   const oldSelected = selected;
   const oldConnection = selectedConnection;
 
+  if(!nodes.length){
+    alert("Es gibt noch keinen Punkt zum Exportieren.");
+    return;
+  }
+
   selected = null;
   selectedConnection = null;
   renderSelection();
 
-  const image = await html2canvas(canvas, {
-    backgroundColor: "#f4f5f7",
-    scale: 2,
-    useCORS: true
-  });
+  try{
+    const padding = 40;
+    const left = Math.max(0, Math.min(...nodes.map(node => node.x)) - padding);
+    const top = Math.max(0, Math.min(...nodes.map(node => node.y)) - padding);
+    const right = Math.max(...nodes.map(node => node.x + node.width)) + padding;
+    const bottom = Math.max(...nodes.map(node => node.y + node.height)) + padding;
 
-  const link = document.createElement("a");
-  link.download = "flussdiagramm.png";
-  link.href = image.toDataURL("image/png");
-  link.click();
+    const image = await html2canvas(canvas, {
+      backgroundColor: "#f4f5f7",
+      scale: 2,
+      useCORS: true
+    });
 
-  selected = oldSelected;
-  selectedConnection = oldConnection;
-  renderSelection();
+    const cropScale = image.width / canvas.offsetWidth;
+    const cropWidth = Math.round((right - left) * cropScale);
+    const cropHeight = Math.round((bottom - top) * cropScale);
+    const croppedImage = document.createElement("canvas");
+    croppedImage.width = cropWidth;
+    croppedImage.height = cropHeight;
+
+    croppedImage.getContext("2d").drawImage(
+      image,
+      Math.round(left * cropScale),
+      Math.round(top * cropScale),
+      cropWidth,
+      cropHeight,
+      0,
+      0,
+      cropWidth,
+      cropHeight
+    );
+
+    const imageBlob = await new Promise(resolve =>
+      croppedImage.toBlob(resolve, "image/png")
+    );
+    if(!imageBlob)throw new Error("Der Bildexport ist fehlgeschlagen.");
+
+    const link = document.createElement("a");
+    link.download = "flussdiagramm.png";
+    link.href = URL.createObjectURL(imageBlob);
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  }finally{
+    selected = oldSelected;
+    selectedConnection = oldConnection;
+    updateEditorState();
+    renderSelection();
+  }
 }
 
 function saveDiagram(){
@@ -742,6 +822,7 @@ function loadDiagram(){
         selectedConnection = null;
         descriptionPanel.classList.remove("visible");
         emptyPanel.style.display = "block";
+        updateEditorState();
 
         persistDiagram();
         render();
@@ -798,7 +879,10 @@ borderColorInput.addEventListener("input", () => {
   }
 });
 
+window.addEventListener("resize", resizeCanvas);
+
 restoreDiagram();
+updateEditorState();
 render();
 </script>
 </body>
