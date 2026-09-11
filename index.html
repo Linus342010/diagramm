@@ -68,6 +68,7 @@ hr{border:0;border-top:1px solid #ddd;margin:18px 0}
   <button class="secondary" onclick="exportImage()">Bild exportieren</button>
   <button class="secondary" onclick="saveDiagram()">Speichern</button>
   <button class="secondary" onclick="loadDiagram()">Laden</button>
+  <button class="danger" onclick="clearDiagram()">Alles löschen</button>
   <button class="danger" onclick="deleteSelected()">Löschen</button>
 </header>
 
@@ -194,6 +195,7 @@ let selectedConnection = null;
 let connectionMode = false;
 let connectionStart = null;
 let drag = null;
+const diagramCookieName = "flussdiagramm";
 
 const canvas = document.getElementById("canvas");
 const svg = document.getElementById("connections");
@@ -248,6 +250,45 @@ function connectionDefaults(c){
   return c;
 }
 
+function persistDiagram(){
+  const data = JSON.stringify({ nodes, connections });
+  document.cookie = `${diagramCookieName}=${encodeURIComponent(data)};max-age=${7 * 24 * 60 * 60};path=/;SameSite=Lax`;
+  localStorage.setItem(`${diagramCookieName}-fallback`, JSON.stringify({
+    data,
+    expires: Date.now() + 7 * 24 * 60 * 60 * 1000
+  }));
+}
+
+function restoreDiagram(){
+  const cookie = document.cookie
+    .split("; ")
+    .find(item => item.startsWith(`${diagramCookieName}=`));
+
+  let savedData = cookie
+    ? decodeURIComponent(cookie.split("=").slice(1).join("="))
+    : null;
+
+  if(!savedData){
+    try{
+      const fallback = JSON.parse(localStorage.getItem(`${diagramCookieName}-fallback`));
+      if(fallback && fallback.expires > Date.now())savedData = fallback.data;
+    }catch{
+      localStorage.removeItem(`${diagramCookieName}-fallback`);
+    }
+  }
+
+  if(!savedData)return false;
+
+  try{
+    const data = JSON.parse(savedData);
+    nodes = (data.nodes || []).map(defaults);
+    connections = (data.connections || []).map(connectionDefaults);
+    return true;
+  }catch{
+    return false;
+  }
+}
+
 function addNode(){
   const n = defaults({
     id: uid(),
@@ -257,6 +298,7 @@ function addNode(){
   });
 
   nodes.push(n);
+  persistDiagram();
   render();
   selectNode(n.id);
 }
@@ -344,6 +386,7 @@ function render(){
             to: node.id
           }));
 
+          persistDiagram();
           connectionStart = null;
           toggleConnectionMode(false);
           render();
@@ -522,6 +565,7 @@ function moveDrag(event){
 }
 
 function stopDrag(){
+  if(drag)persistDiagram();
   drag = null;
   document.removeEventListener("mousemove", moveDrag);
   document.removeEventListener("mouseup", stopDrag);
@@ -542,6 +586,7 @@ function applyChanges(){
   selected.height = Math.max(50, parseInt(heightInput.value) || 140);
   selected.x = Math.max(0, parseInt(xInput.value) || 0);
   selected.y = Math.max(0, parseInt(yInput.value) || 0);
+  persistDiagram();
 
   const id = selected.id;
   render();
@@ -560,6 +605,7 @@ function applyArrowChanges(){
     parseInt(arrowWidthInput.value) || 2
   );
   selectedConnection.style = arrowStyleInput.value;
+  persistDiagram();
 
   renderConnections();
   renderSelection();
@@ -586,6 +632,7 @@ function deleteSelected(){
     return;
   }
 
+  persistDiagram();
   descriptionPanel.classList.remove("visible");
   emptyPanel.style.display = "block";
   render();
@@ -658,6 +705,21 @@ function saveDiagram(){
   URL.revokeObjectURL(link.href);
 }
 
+function clearDiagram(){
+  if(!confirm("Das gesamte Diagramm wirklich löschen?"))return;
+
+  nodes = [];
+  connections = [];
+  selected = null;
+  selectedConnection = null;
+  connectionStart = null;
+  document.cookie = `${diagramCookieName}=;max-age=0;path=/;SameSite=Lax`;
+  localStorage.removeItem(`${diagramCookieName}-fallback`);
+  descriptionPanel.classList.remove("visible");
+  emptyPanel.style.display = "block";
+  render();
+}
+
 function loadDiagram(){
   const input = document.createElement("input");
   input.type = "file";
@@ -681,6 +743,7 @@ function loadDiagram(){
         descriptionPanel.classList.remove("visible");
         emptyPanel.style.display = "block";
 
+        persistDiagram();
         render();
       }catch{
         alert("Die Datei konnte nicht geladen werden.");
@@ -706,6 +769,7 @@ function escapeHtml(text){
 fontSizeInput.addEventListener("input", () => {
   if(selected){
     selected.fontSize = Math.min(48, Math.max(8, parseInt(fontSizeInput.value) || 16));
+    persistDiagram();
     render();
   }
 });
@@ -713,6 +777,7 @@ fontSizeInput.addEventListener("input", () => {
 colorInput.addEventListener("input", () => {
   if(selected){
     selected.color = colorInput.value;
+    persistDiagram();
     render();
   }
 });
@@ -720,6 +785,7 @@ colorInput.addEventListener("input", () => {
 textColorInput.addEventListener("input", () => {
   if(selected){
     selected.textColor = textColorInput.value;
+    persistDiagram();
     render();
   }
 });
@@ -727,10 +793,12 @@ textColorInput.addEventListener("input", () => {
 borderColorInput.addEventListener("input", () => {
   if(selected){
     selected.borderColor = borderColorInput.value;
+    persistDiagram();
     render();
   }
 });
 
+restoreDiagram();
 render();
 </script>
 </body>
