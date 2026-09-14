@@ -10,7 +10,7 @@
 <style>
 *{box-sizing:border-box}
 body{margin:0;font-family:Arial,sans-serif;background:#f4f5f7;color:#222;overflow:hidden}
-header{height:58px;background:#263548;color:white;display:flex;align-items:center;padding:0 18px;gap:10px}
+header{min-height:58px;background:#263548;color:white;display:flex;align-items:center;padding:8px 18px;gap:10px;flex-wrap:wrap}
 header h1{font-size:18px;margin:0;flex:1}
 button{border:0;border-radius:7px;padding:9px 13px;cursor:pointer;font-size:14px}
 .primary{background:#4b75c5;color:white}
@@ -21,7 +21,7 @@ main{height:calc(100vh - 58px);display:flex}
 #toolbar h2{font-size:15px;margin:5px 0 12px}
 #toolbar p{font-size:13px;color:#666;line-height:1.4}
 #canvasWrap{position:relative;flex:1;overflow:auto;background:#f4f5f7;background-image:radial-gradient(#cfd4dc 1px,transparent 1px);background-size:20px 20px}
-#canvas{position:relative;min-width:1800px;min-height:1200px}
+#canvas{position:relative;min-width:1800px;min-height:1200px;transform-origin:top left}
 #connections{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
 .connection{fill:none}
 .node{
@@ -59,6 +59,23 @@ fieldset{border:0;padding:0;margin:0;min-width:0}
 fieldset:disabled{opacity:.55}
 #connectionMode.active{background:#f2a900;color:white}
 hr{border:0;border-top:1px solid #ddd;margin:18px 0}
+#zoomTools{display:flex;align-items:center;gap:5px;color:#263548;background:#e9edf3;border-radius:7px;padding:3px 5px}
+#zoomTools button{padding:5px 9px;background:transparent;color:#263548}
+#zoomValue{min-width:46px;text-align:center;font-size:13px}
+#exportFrame{position:absolute;z-index:5;display:none;border:3px solid #f2a900;box-shadow:0 0 0 9999px #26354855;cursor:move;touch-action:none}
+#exportFrame.visible{display:block}
+#exportFrame::after{content:"";position:absolute;right:-7px;bottom:-7px;width:14px;height:14px;background:#f2a900;border:2px solid white;border-radius:3px;cursor:nwse-resize}
+#exportHint{position:absolute;top:-29px;left:-3px;background:#f2a900;color:#222;padding:4px 7px;border-radius:4px;font-size:12px;white-space:nowrap}
+@media(max-width:800px){
+  body{overflow:auto}
+  header{height:auto;padding:8px;gap:6px}
+  header h1{flex:1 0 100%;font-size:16px}
+  header button{padding:8px 9px;font-size:12px}
+  #zoomTools{order:5}
+  main{height:calc(100vh - 106px);min-height:500px;display:flex;flex-direction:column}
+  #toolbar{width:100%;min-height:62px;max-height:42vh;border-right:0;border-bottom:1px solid #ddd;padding:10px}
+  #canvasWrap{min-height:58vh}
+}
 </style>
 </head>
 
@@ -69,6 +86,13 @@ hr{border:0;border-top:1px solid #ddd;margin:18px 0}
   <button class="secondary" id="connectionMode" onclick="toggleConnectionMode()">
     Pfeil verbinden
   </button>
+  <div id="zoomTools" aria-label="Zoom">
+    <button onclick="changeZoom(-0.1)" title="Verkleinern">−</button>
+    <span id="zoomValue">100%</span>
+    <button onclick="changeZoom(0.1)" title="Vergrößern">+</button>
+    <button onclick="setZoom(1)" title="Zoom zurücksetzen">1:1</button>
+  </div>
+  <button class="secondary" onclick="toggleExportFrame()">Export-Rahmen</button>
   <button class="secondary" onclick="exportImage()">Bild exportieren</button>
   <button class="secondary" onclick="saveDiagram()">Speichern</button>
   <button class="secondary" onclick="loadDiagram()">Laden</button>
@@ -232,6 +256,7 @@ hr{border:0;border-top:1px solid #ddd;margin:18px 0}
       <defs id="arrowDefs"></defs>
     </svg>
   </div>
+  <div id="exportFrame"><span id="exportHint">Rahmen ziehen und an der Ecke anpassen</span></div>
 </section>
 </main>
 
@@ -261,6 +286,8 @@ let selectedConnection = null;
 let connectionMode = false;
 let connectionStart = null;
 let drag = null;
+let zoom = 1;
+let frameDrag = null;
 const diagramCookieName = "flussdiagramm";
 
 const canvas = document.getElementById("canvas");
@@ -268,6 +295,8 @@ const canvasWrap = document.getElementById("canvasWrap");
 const svg = document.getElementById("connections");
 const arrowDefs = document.getElementById("arrowDefs");
 const connectionModeButton = document.getElementById("connectionMode");
+const zoomValue = document.getElementById("zoomValue");
+const exportFrame = document.getElementById("exportFrame");
 
 const emptyPanel = document.getElementById("empty");
 const descriptionPanel = document.getElementById("descriptionPanel");
@@ -348,6 +377,88 @@ function resizeCanvas(){
   canvas.style.width = Math.max(1800, right) + "px";
   canvas.style.height = Math.max(1200, bottom) + "px";
 }
+
+function setZoom(value){
+  zoom = Math.min(2, Math.max(0.4, value));
+  canvas.style.zoom = zoom;
+  zoomValue.textContent = Math.round(zoom * 100) + "%";
+  renderConnections();
+}
+
+function changeZoom(delta){
+  setZoom(Math.round((zoom + delta) * 10) / 10);
+}
+
+function frameToCanvasRect(){
+  const frameRect = exportFrame.getBoundingClientRect();
+  const canvasRect = canvas.getBoundingClientRect();
+  return {
+    left: (frameRect.left - canvasRect.left) / zoom,
+    top: (frameRect.top - canvasRect.top) / zoom,
+    width: frameRect.width / zoom,
+    height: frameRect.height / zoom
+  };
+}
+
+function positionExportFrame(){
+  const padding = 40;
+  const left = Math.max(0, Math.min(...nodes.map(node => node.x)) - padding);
+  const top = Math.max(0, Math.min(...nodes.map(node => node.y)) - padding);
+  const right = Math.max(...nodes.map(node => node.x + node.width)) + padding;
+  const bottom = Math.max(...nodes.map(node => node.y + node.height)) + padding;
+  const wrapRect = canvasWrap.getBoundingClientRect();
+  const canvasRect = canvas.getBoundingClientRect();
+
+  exportFrame.style.left = Math.max(8, canvasRect.left - wrapRect.left + left * zoom) + "px";
+  exportFrame.style.top = Math.max(8, canvasRect.top - wrapRect.top + top * zoom) + "px";
+  exportFrame.style.width = Math.max(160, (right - left) * zoom) + "px";
+  exportFrame.style.height = Math.max(100, (bottom - top) * zoom) + "px";
+}
+
+function toggleExportFrame(){
+  if(exportFrame.classList.toggle("visible") && nodes.length)positionExportFrame();
+}
+
+function moveExportFrame(event){
+  if(!frameDrag)return;
+  const wrapRect = canvasWrap.getBoundingClientRect();
+  exportFrame.style.left = Math.max(0, event.clientX - wrapRect.left - frameDrag.offsetX) + "px";
+  exportFrame.style.top = Math.max(0, event.clientY - wrapRect.top - frameDrag.offsetY) + "px";
+}
+
+function stopExportFrame(){
+  frameDrag = null;
+  document.removeEventListener("pointermove", moveExportFrame);
+  document.removeEventListener("pointerup", stopExportFrame);
+}
+
+exportFrame.addEventListener("pointerdown", event => {
+  const isResize = event.offsetX >= exportFrame.offsetWidth - 22 &&
+    event.offsetY >= exportFrame.offsetHeight - 22;
+  if(isResize)return;
+  const rect = exportFrame.getBoundingClientRect();
+  frameDrag = { offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top };
+  exportFrame.setPointerCapture(event.pointerId);
+  document.addEventListener("pointermove", moveExportFrame);
+  document.addEventListener("pointerup", stopExportFrame);
+  event.stopPropagation();
+});
+
+exportFrame.addEventListener("pointerdown", event => {
+  if(event.offsetX < exportFrame.offsetWidth - 22 || event.offsetY < exportFrame.offsetHeight - 22)return;
+  const start = { x: event.clientX, y: event.clientY, width: exportFrame.offsetWidth, height: exportFrame.offsetHeight };
+  const resize = moveEvent => {
+    exportFrame.style.width = Math.max(160, start.width + moveEvent.clientX - start.x) + "px";
+    exportFrame.style.height = Math.max(100, start.height + moveEvent.clientY - start.y) + "px";
+  };
+  const stopResize = () => {
+    document.removeEventListener("pointermove", resize);
+    document.removeEventListener("pointerup", stopResize);
+  };
+  document.addEventListener("pointermove", resize);
+  document.addEventListener("pointerup", stopResize);
+  event.stopPropagation();
+});
 
 function updateEditorState(){
   const hasNode = !!selected;
@@ -501,7 +612,7 @@ function render(){
       }
     `;
 
-    element.addEventListener("mousedown", startDrag);
+    element.addEventListener("pointerdown", startDrag);
 
     element.addEventListener("click", event => {
       event.stopPropagation();
@@ -657,12 +768,13 @@ function startDrag(event){
 
   drag = {
     node,
-    offsetX: event.clientX - rect.left - node.x,
-    offsetY: event.clientY - rect.top - node.y
+    offsetX: (event.clientX - rect.left) / zoom - node.x,
+    offsetY: (event.clientY - rect.top) / zoom - node.y
   };
 
-  document.addEventListener("mousemove", moveDrag);
-  document.addEventListener("mouseup", stopDrag);
+  event.currentTarget.setPointerCapture(event.pointerId);
+  document.addEventListener("pointermove", moveDrag);
+  document.addEventListener("pointerup", stopDrag);
 }
 
 function moveDrag(event){
@@ -672,12 +784,12 @@ function moveDrag(event){
 
   drag.node.x = Math.max(
     0,
-    event.clientX - rect.left - drag.offsetX
+    (event.clientX - rect.left) / zoom - drag.offsetX
   );
 
   drag.node.y = Math.max(
     0,
-    event.clientY - rect.top - drag.offsetY
+    (event.clientY - rect.top) / zoom - drag.offsetY
   );
 
   const element = document.querySelector(
@@ -699,8 +811,8 @@ function moveDrag(event){
 function stopDrag(){
   if(drag)persistDiagram();
   drag = null;
-  document.removeEventListener("mousemove", moveDrag);
-  document.removeEventListener("mouseup", stopDrag);
+  document.removeEventListener("pointermove", moveDrag);
+  document.removeEventListener("pointerup", stopDrag);
 }
 
 function applyChanges(){
@@ -812,22 +924,32 @@ async function exportImage(){
     return;
   }
 
+  const frame = exportFrame.classList.contains("visible")
+    ? frameToCanvasRect()
+    : null;
+  const oldZoom = zoom;
+
   selected = null;
   selectedConnection = null;
   renderSelection();
 
   try{
     const padding = 40;
-    const left = Math.max(0, Math.min(...nodes.map(node => node.x)) - padding);
-    const top = Math.max(0, Math.min(...nodes.map(node => node.y)) - padding);
-    const right = Math.max(...nodes.map(node => node.x + node.width)) + padding;
-    const bottom = Math.max(...nodes.map(node => node.y + node.height)) + padding;
+    const left = frame ? Math.max(0, frame.left) : Math.max(0, Math.min(...nodes.map(node => node.x)) - padding);
+    const top = frame ? Math.max(0, frame.top) : Math.max(0, Math.min(...nodes.map(node => node.y)) - padding);
+    const right = frame ? frame.left + frame.width : Math.max(...nodes.map(node => node.x + node.width)) + padding;
+    const bottom = frame ? frame.top + frame.height : Math.max(...nodes.map(node => node.y + node.height)) + padding;
+
+    exportFrame.classList.remove("visible");
+    setZoom(1);
 
     const image = await html2canvas(canvas, {
-      backgroundColor: "#f4f5f7",
+      backgroundColor: diagramBackground,
       scale: 2,
       useCORS: true
     });
+
+    if(frame)exportFrame.classList.add("visible");
 
     const cropScale = image.width / canvas.offsetWidth;
     const cropWidth = Math.round((right - left) * cropScale);
@@ -859,10 +981,13 @@ async function exportImage(){
     link.click();
     setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   }finally{
+    setZoom(oldZoom);
+    if(frame)exportFrame.classList.add("visible");
     selected = oldSelected;
     selectedConnection = oldConnection;
     updateEditorState();
     renderSelection();
+    if(frame)positionExportFrame();
   }
 }
 
@@ -984,7 +1109,10 @@ borderColorInput.addEventListener("input", () => {
   }
 });
 
-window.addEventListener("resize", resizeCanvas);
+window.addEventListener("resize", () => {
+  resizeCanvas();
+  if(exportFrame.classList.contains("visible") && nodes.length)positionExportFrame();
+});
 
 restoreDiagram();
 updateEditorState();
